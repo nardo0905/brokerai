@@ -1,0 +1,267 @@
+<!doctype html>
+<html lang="bg">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>BrokerAI — Интелигентен имотен консултант</title>
+    <link rel="stylesheet" href="/static/style.css" />
+  </head>
+  <body>
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <div class="logo">🏠</div>
+        <h1>BrokerAI</h1>
+        <p class="tagline">Имотен консултант</p>
+      </div>
+
+      <nav class="sidebar-nav">
+        <button class="nav-btn active" data-panel="chat">
+          <span class="nav-icon">💬</span> Чат
+        </button>
+        <button class="nav-btn" data-panel="scrape">
+          <span class="nav-icon">🔍</span> Скрейпване
+        </button>
+        <button class="nav-btn" data-panel="schedule">
+          <span class="nav-icon">📅</span> Огледи
+        </button>
+        <button class="nav-btn" data-panel="ml">
+          <span class="nav-icon">🧠</span> ML Модел
+        </button>
+      </nav>
+
+      <div class="sidebar-section">
+        <h3>Настройки на чата</h3>
+        <label for="thread-id">Thread ID</label>
+        <input
+          type="text"
+          id="thread-id"
+          value="default_user"
+          placeholder="напр. user_123"
+        />
+      </div>
+
+      <div class="sidebar-section status-section">
+        <h3>Състояние на системата</h3>
+        <div class="status-row">
+          <span class="status-dot" id="status-api"></span>
+          <span>API</span>
+        </div>
+        <div class="status-row">
+          <span class="status-dot" id="status-db"></span>
+          <span>База данни</span>
+        </div>
+        <div class="status-row">
+          <span class="status-dot" id="status-llm"></span>
+          <span>LLM (Ollama)</span>
+        </div>
+        <button class="btn-small" id="btn-check-status">Провери</button>
+      </div>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="main-content">
+      <!-- Chat Panel -->
+      <section class="panel active" id="panel-chat">
+        <div class="chat-container">
+          <div class="chat-messages" id="chat-messages">
+            <div class="message bot">
+              <div class="message-avatar">🏠</div>
+              <div class="message-body">
+                <p>
+                  Здравейте! Аз съм <strong>BrokerAI</strong> — вашият
+                  интелигентен имотен консултант. Как мога да ви помогна днес?
+                </p>
+                <p class="hint">
+                  Можете да ме попитате за имоти, цени, квартали или да запишете
+                  оглед.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div class="chat-input-area">
+            <div class="input-wrapper">
+              <textarea
+                id="chat-input"
+                placeholder="Напишете съобщение... (Enter за изпращане, Shift+Enter за нов ред)"
+                rows="1"
+              ></textarea>
+              <div class="input-actions">
+                <button class="btn-icon" id="btn-voice" title="Гласов вход">
+                  🎤
+                </button>
+                <button class="btn-icon btn-send" id="btn-send" title="Изпрати">
+                  ➤
+                </button>
+              </div>
+            </div>
+            <div id="voice-status" class="voice-status hidden"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Scrape Panel -->
+      <section class="panel" id="panel-scrape">
+        <div class="scrape-container">
+          <div class="scrape-header">
+            <h2>🔍 Скрейпване на обяви</h2>
+            <p>Добавете нови имоти от imot.bg или от текст.</p>
+          </div>
+
+          <div class="scrape-tabs">
+            <button class="scrape-tab active" data-tab="url">От URL</button>
+            <button class="scrape-tab" data-tab="text">От текст</button>
+          </div>
+
+          <div class="scrape-form" id="scrape-form-url">
+            <label for="scrape-url">URL адрес (imot.bg)</label>
+            <input
+              type="url"
+              id="scrape-url"
+              placeholder="https://www.imot.bg/pcgi/imot.cgi?act=3&slink=..."
+            />
+
+            <label for="scrape-pages">Максимален брой страници</label>
+            <input type="number" id="scrape-pages" min="1" max="10" value="3" />
+
+            <button class="btn-primary" id="btn-scrape-url">
+              Стартирай скрейпване
+            </button>
+          </div>
+
+          <div class="scrape-form hidden" id="scrape-form-text">
+            <label for="scrape-text">Текст с обяви</label>
+            <textarea
+              id="scrape-text"
+              rows="10"
+              placeholder="Поставете текст с обяви тук..."
+            ></textarea>
+
+            <button class="btn-primary" id="btn-scrape-text">
+              Обработи текст
+            </button>
+          </div>
+
+          <div id="scrape-result" class="scrape-result hidden"></div>
+        </div>
+      </section>
+
+      <!-- Schedule Panel -->
+      <section class="panel" id="panel-schedule">
+        <div class="schedule-container">
+          <div class="schedule-header">
+            <h2>📅 Насрочени огледи</h2>
+            <p>Преглед и управление на записаните огледи.</p>
+          </div>
+
+          <!-- Quick book form -->
+          <div class="schedule-form">
+            <h3>Запиши нов оглед</h3>
+            <div class="form-row">
+              <div class="form-group">
+                <label for="appt-property-id">ID на имот</label>
+                <input
+                  type="number"
+                  id="appt-property-id"
+                  min="1"
+                  placeholder="напр. 5"
+                />
+              </div>
+              <div class="form-group">
+                <label for="appt-datetime">Дата и час</label>
+                <input
+                  type="text"
+                  id="appt-datetime"
+                  placeholder="напр. Понеделник 10:00"
+                />
+              </div>
+              <div class="form-group">
+                <label for="appt-contact">Контакт</label>
+                <input
+                  type="text"
+                  id="appt-contact"
+                  placeholder="Име / телефон"
+                />
+              </div>
+            </div>
+            <button class="btn-primary" id="btn-book-appt">Запиши оглед</button>
+            <div id="appt-form-msg" class="appt-form-msg hidden"></div>
+          </div>
+
+          <!-- Appointments list -->
+          <div class="schedule-list">
+            <div class="schedule-list-header">
+              <h3>Списък с огледи</h3>
+              <button class="btn-small" id="btn-refresh-appts">Обнови</button>
+            </div>
+            <div id="appointments-list" class="appointments-list">
+              <p class="empty-state">Зареждане...</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ML Model Panel -->
+      <section class="panel" id="panel-ml">
+        <div class="ml-container">
+          <div class="ml-header">
+            <h2>🧠 ML Ценови модел</h2>
+            <p>
+              Обучете модел за предсказване на цени, базиран на скрейпнатите
+              имоти.
+            </p>
+          </div>
+
+          <div class="ml-status-card">
+            <h3>Статус на модела</h3>
+            <div class="ml-status-row">
+              <span class="ml-label">Обучен модел:</span>
+              <span id="ml-trained-badge" class="ml-badge ml-badge-unknown"
+                >Проверка...</span
+              >
+            </div>
+            <button class="btn-small" id="btn-ml-check">Провери статус</button>
+          </div>
+
+          <div class="ml-train-card">
+            <h3>Обучение</h3>
+            <p class="ml-info">
+              Моделът анализира имотите в базата и учи зависимостта между площ,
+              стаи, етаж, тип имот, локация → цена. Използва GradientBoosting
+              регресия (scikit-learn).
+            </p>
+            <p class="ml-info">
+              ⚠️ Необходими са поне <strong>10 имота</strong> с извлечена площ
+              (м²) в описанието.
+            </p>
+            <button class="btn-primary" id="btn-ml-train">
+              🚀 Обучи модела
+            </button>
+            <div id="ml-train-result" class="ml-train-result hidden"></div>
+          </div>
+
+          <div class="ml-how-card">
+            <h3>Как работи?</h3>
+            <ol class="ml-steps">
+              <li>
+                <strong>Скрейпване</strong> — Събирате имоти от imot.bg през
+                панела за скрейпване
+              </li>
+              <li>
+                <strong>Обучение</strong> — Натискате "Обучи модела" тук.
+                Системата извлича характеристики и тренира модел
+              </li>
+              <li>
+                <strong>Оценка</strong> — При търсене на имоти, оценката
+                автоматично ползва ML модела вместо LLM heuristics
+              </li>
+            </ol>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <script src="/static/app.js"></script>
+  </body>
+</html>

@@ -1,0 +1,85 @@
+version: "3.8"
+
+services:
+  # 1. Vector Database (PostgreSQL + pgvector)
+  # Използваме го за RAG и съхранение на потребители [cite: 3, 6]
+  db:
+    image: pgvector/pgvector:pg16
+    container_name: broker_db
+    environment:
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - broker_net
+
+  # 2. Object Storage (MinIO)
+  # За съхранение на снимки и медия
+  minio:
+    image: minio/minio
+    container_name: broker_minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_PASSWORD}
+    ports:
+      - "9000:9000" # API port
+      - "9001:9001" # Console port
+    volumes:
+      - minio_data:/data
+    networks:
+      - broker_net
+
+  # 3. LLM Inference Engine (Ollama)
+  # За изпълнение на Llama 3.x
+  ollama:
+    image: ollama/ollama
+    container_name: broker_ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_storage:/root/.ollama
+    networks:
+      - broker_net
+    # Ако имаш NVIDIA GPU, разкоментирай секцията по-долу:
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+
+  # 4. Backend Application (Python/FastAPI)
+  # Ще го активираме в следващата стъпка, когато напишем Dockerfile
+  backend:
+    build: .
+    container_name: broker_backend
+    volumes:
+      - .:/app # Мапваме текущата папка, за да вижда промените веднага
+    ports:
+      - "8000:8000"
+    environment:
+      - PYTHONUNBUFFERED=1
+      - POSTGRES_USER=${DB_USER}
+      - POSTGRES_PASSWORD=${DB_PASSWORD}
+      - POSTGRES_DB=${DB_NAME}
+      - OLLAMA_BASE_URL=http://ollama:11434
+    depends_on:
+      - db
+      - ollama
+    networks:
+      - broker_net
+
+networks:
+  broker_net:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  minio_data:
+  ollama_storage:
