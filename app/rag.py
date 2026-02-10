@@ -68,3 +68,11 @@ def search_properties(query_text, limit=10, max_distance: float = None):
         return [prop for prop, _dist in rows]
     finally:
         db.close()
+
+
+def get_property_by_id(property_id: int):
+    db = SessionLocal()
+    try:
+        return db.query(PropertyListing).filter(PropertyListing.id == property_id).first()
+    finally:
+        db.close()

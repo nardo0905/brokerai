@@ -5,7 +5,7 @@ from langgraph.checkpoint.memory import MemorySaver
 import re
 
 from app.agents.state import AgentState
-from app.rag import search_properties
+from app.rag import search_properties, get_property_by_id
 from app.agents.valuation import evaluate_property
 from app.agents.scheduler import book_appointment
 from app.agents.scraper import build_imot_search_url, scrape_and_store
@@ -21,14 +21,13 @@ MAX_HISTORY_MESSAGES = 20
 
 ROUTER_PROMPT = """You are a request classifier for a real estate assistant.
 Classify the user's LAST message into exactly one category.
-Use the recent conversation history to understand context — e.g. if the
-previous messages were about searching for properties and the user now asks
-"what about something cheaper?" that is still a "search".
+Use the recent conversation history to understand context.
 
 Categories:
-- "search"   : The user is looking for properties, asking about apartments, houses, prices, locations, neighborhoods, or anything related to finding/comparing real estate. Also includes follow-up questions about previously shown properties (e.g. "а по-евтино?", "something bigger?", "друго в този квартал?").
-- "schedule" : The user wants to book a viewing, schedule an appointment, or arrange a meeting for a property ("оглед", "среща", "booking").
-- "general"  : Greetings, small talk, thanks, questions about how you work, or anything NOT about searching/scheduling properties.
+- "search"     : The user is looking for NEW properties, asking to find apartments, houses, in specific locations/neighborhoods, or refining a search (e.g. "а по-евтино?", "something bigger?", "друго в този квартал?").
+- "valuation"  : The user is asking about the PRICE or VALUE of a property that was ALREADY SHOWN in the conversation. Examples: "добра ли е цената?", "струва ли си?", "скъп ли е?", "is it a good deal?", "оцени цената", "какво мислиш за цената?". This is NOT a new search — it is a question about an existing result.
+- "schedule"   : The user wants to book a viewing, schedule an appointment, or arrange a meeting for a property ("оглед", "среща", "booking").
+- "general"    : Greetings, small talk, thanks, questions about how you work, or anything NOT about searching/scheduling/valuation.
 
 Respond with ONLY the category word, nothing else.
 """
@@ -63,7 +62,9 @@ def router_node(state: AgentState):
     
     intent = classification.content.strip().lower()
 
-    if "search" in intent:
+    if "valuation" in intent:
+        intent = "valuation"
+    elif "search" in intent:
         intent = "search"
     elif "schedule" in intent:
         intent = "schedule"
@@ -77,6 +78,8 @@ def route_by_intent(state: AgentState) -> str:
     intent = state.get("intent", "general")
     if intent == "search":
         return "retrieve"
+    elif intent == "valuation":
+        return "valuation"
     elif intent == "schedule":
         return "schedule"
     else:
@@ -205,6 +208,57 @@ def schedule_node(state: AgentState):
         "active_property_id": active_id,
     }
 
+def valuation_node(state: AgentState):
+    messages = state['messages']
+    active_id = state.get('active_property_id')
+    user_last_msg = messages[-1].content
+
+    id_match = re.search(r'(?:#|ID\s*|id\s*|имот\s*#?|номер\s*)(\d+)', user_last_msg, re.IGNORECASE)
+    if id_match:
+        active_id = int(id_match.group(1))
+
+    if not active_id:
+        return {"messages": [AIMessage(
+            content="Не мога да направя оценка — нямам активен имот. Моля, първо потърсете имот и след това попитайте за цената."
+        )]}
+
+    prop = get_property_by_id(active_id)
+    if not prop:
+        return {"messages": [AIMessage(
+            content=f"Не намерих имот с ID {active_id} в базата."
+        )]}
+
+    prop_desc = f"{prop.title} in {prop.location}. Price: {prop.price} EUR. Features: {prop.features}"
+    print(f"💰 Running valuation for property #{active_id}: {prop.title}")
+
+    try:
+        valuation_json = evaluate_property(prop_desc, listed_price=prop.price)
+    except Exception as e:
+        valuation_json = f'{{"verdict": "Unknown", "reasoning": "Error: {e}"}}'
+
+    if "Good Deal" in valuation_json:
+        verdict = "✅ Good Deal"
+    elif "Fair Price" in valuation_json:
+        verdict = "👍 Fair Price"
+    elif "Overpriced" in valuation_json:
+        verdict = "⚠️ Overpriced"
+    else:
+        verdict = "❓ Неизвестно"
+
+    response_text = (
+        f"Оценка на имот #{active_id} — **{prop.title}** ({prop.location})\n"
+        f"Обявена цена: {prop.price} EUR\n\n"
+        f"Заключение: {verdict}\n\n"
+        f"Детайли: {valuation_json}\n\n"
+        f"⚠️ Това е приблизителна AI оценка, не професионално мнение."
+    )
+
+    return {
+        "messages": [AIMessage(content=response_text)],
+        "active_property_id": active_id,
+    }
+
+
 def chatbot_general_node(state: AgentState):
     messages = state['messages']
 
@@ -217,17 +271,20 @@ workflow = StateGraph(AgentState)
 workflow.add_node("router", router_node)
 workflow.add_node("retrieve", retrieve_node)
 workflow.add_node("chatbot", generate_node)
+workflow.add_node("valuation", valuation_node)
 workflow.add_node("schedule", schedule_node)
 workflow.add_node("chatbot_general", chatbot_general_node)
 
 workflow.set_entry_point("router")
 workflow.add_conditional_edges("router", route_by_intent, {
     "retrieve": "retrieve",
+    "valuation": "valuation",
     "schedule": "schedule",
     "chatbot_general": "chatbot_general",
 })
 workflow.add_edge("retrieve", "chatbot")
 workflow.add_edge("chatbot", END)
+workflow.add_edge("valuation", END)
 workflow.add_edge("schedule", END)
 workflow.add_edge("chatbot_general", END)
 
